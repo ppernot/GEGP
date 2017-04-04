@@ -1,8 +1,0 @@
-**GEGP**
-
-Implementation of Gradients-Enhanced Kriging in stan.
-
-At the moment:
-* 1D 
-* Gaussian covariance [Ulaganathan (2016) Eng. Comp. 32:15-34]
-

@@ -100,6 +100,7 @@ ab_summary <- summary(fit, pars = pars,
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
 traceplot(fit,pars=pars,inc_warmup=TRUE)
+pairs(fit,pars=pars)
 
 plot_predict(input_data,fit)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
@@ -123,6 +124,7 @@ ab_summary <- summary(fitGE, pars = pars,
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
 traceplot(fitGE,pars=pars,inc_warmup=TRUE)
+pairs(fitGE,pars=pars)
 
 plot_predict(input_data,fitGE) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
