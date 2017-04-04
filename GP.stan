@@ -16,13 +16,15 @@ transformed data {
   
   N = N1 + N2;
 
-  for (i in 1:N1) x[i] = x1[i];
-  for (i in 1:N2) x[N1+i] = x2[i];
-  for (i in 1:N)  mu[i] = 0;
+  for (i in 1:N1)     x[i] = x1[i];
+  for (i in (N1+1):N) x[i] = x2[i-N1];
+  
+  // Center y
+  for (i in 1:N)  mu[i] = mean(y1);
 
-  // Rescale x and variance for GP
-  x_scale = 1;#1/(max(x)-min(x));
-  v_scale = 1;#max(uy1)^2;
+  // Scale x and variance
+  x_scale = 1/(max(x)-min(x));
+  v_scale = (max(y1)-min(y1))^2;
   
   // Mean variance for prediction
   uy_m2 = mean(uy1 .* uy1);
@@ -42,26 +44,27 @@ transformed parameters {
   eta2 = eta_sq * v_scale; 
 
   for (i in 1:N) 
-    for (j in 1:N) 
+    for (j in i:N) {
       V[i,j] = eta2 * exp(-rho2* (x[i]-x[j])^2 ); 
-
-  for (i in 1:N1) 
-    V[i,i] = V[i,i] + uy1[i]^2;
-
-  for (i in 1:N2) 
-    V[N1+i,N1+i] = V[N1+i,N1+i] + uy_m2;
+      V[j,i] = V[i,j];
+    } 
+    
+  for (i in 1:N1)           V[i,i] = V[i,i] + uy1[i]^2;
+  for (i in (N1+1):(N1+N2)) V[i,i] = V[i,i] + uy_m2;
   
 }
 model {
   vector[N] y;
 
-  for (i in 1:N1) y[i] = y1[i];
-  for (i in 1:N2) y[N1 + i] = y2[i];
+  for (i in 1:N1)     y[i] = y1[i];
+  for (i in (N1+1):N) y[i] = y2[i-N1];
 
-  eta_sq ~ normal(0,1);
+  eta_sq     ~ normal(0,1);
   inv_rho_sq ~ normal(0,1);
 
   y ~ multi_normal(mu, V);
 }
 generated quantities{
 }
+ 
+ 

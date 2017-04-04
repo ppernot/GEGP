@@ -1,9 +1,9 @@
 --- 
-title:  "Gradient-enhanced Gaussian Process Regression"
+title: "Gradient-enhanced Gaussian Process Regression"
 author: "Pascal Pernot"
-date:   "`r Sys.Date()`"
-output: 
-  html_document: 
+date: '`r Sys.Date()`'
+output:
+  html_document:
     highlight: tango
     number_sections: yes
     theme: cerulean
@@ -56,12 +56,12 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
 
 ```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
 
-# fmod = expression(sin(x))
-fmod = expression(0.04*(x-5)^2)
+fmod = expression(sin(x))
+# fmod = expression(0.04*(x-5)^2)
 
 # Generate data
 N1 = 6
-sd = 0.01
+sd = 0.05
 x_min = 1; x_max = 10
 x1 = seq(from = x_min, to = x_max, length.out = N1)
 y1 = eval(fmod,list(x=x1))  + sd*rnorm(N1)
@@ -70,15 +70,15 @@ dy1 = as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
   sd*rnorm(N1)
 udy1= rep(sd,length(x1))
 
+# Prediction grid
+N2 = 50
+x2 = seq(-1,11,length.out = N2)
+
 # Plot data points and gradients
 plot(x1,y1,pch=19,col=2,cex=0.5)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1,y1-2*uy1,x1,y1+2*uy1,lwd=2,col=2)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
-
-# Prediction grid
-N2 = 50
-x2 = seq(-1,11,length.out = N2)
 
 # Save data
 stan_rdump(c("N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
@@ -88,17 +88,18 @@ stan_rdump(c("N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
 ## Standard GP
 
 ```{r GP}
-input_data <- read_rdump("mydata.R")
+mod = stan_model(file = 'GP.stan')
 
-fit = stan(file = 'GP.stan', data = input_data,
-           iter = 2500, chains = 1, warmup = 1000)
+input_data <- read_rdump("mydata.R")
+fit = sampling(mod, data = input_data,
+               iter = 1500, chains = 1, warmup = 500)
 
 pars = c("eta_sq", "inv_rho_sq")
 ab_summary <- summary(fit, pars = pars, 
                       probs = c(0.025, 0.975))$summary
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
-traceplot(fit,pars=pars)
+traceplot(fit,pars=pars,inc_warmup=TRUE)
 
 plot_predict(input_data,fit)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
@@ -109,10 +110,12 @@ title(main='Standard GP')
 ## Gradient-Enhanced GP
 
 ```{r GEGP}
+modGE = stan_model(file = 'GEGP.stan')
+
 input_data <- read_rdump("mydata.R")
 
-fitGE = stan(file = 'GEGP.stan', data = input_data,
-             iter = 2500, chains = 1, warmup = 1000)
+fitGE = sampling(modGE, data = input_data,
+                 iter = 1500, chains = 1, warmup = 500)
 
 pars = c("eta_sq", "inv_rho_sq")
 ab_summary <- summary(fitGE, pars = pars, 
@@ -128,15 +131,18 @@ title(main='Gradient-enhanced GP')
 ```
 
 
-## Compare
+## Comparison
 
 ```{r compare, echo=FALSE, message=FALSE, warning=FALSE}
 par(mfrow = c(1,2))
+
 plot_predict(input_data,fit)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 title(main='Standard GP')
+
 plot_predict(input_data,fitGE) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 title(main='Gradient-enhanced GP')
+
 ```
