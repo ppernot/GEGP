@@ -10,7 +10,7 @@ transformed data {
   real x_scale;
   real v_scale;
   real uy_m2;
-  int<lower=1> N;
+  int<lower=2> N;
   vector[N1+N2] x;
   vector[N1+N2] mu;
   
@@ -59,8 +59,8 @@ model {
   for (i in 1:N1)     y[i] = y1[i];
   for (i in (N1+1):N) y[i] = y2[i-N1];
 
-  eta_sq     ~ normal(0,1);
-  inv_rho_sq ~ normal(0,1);
+  eta_sq     ~ normal(0,0.5);
+  inv_rho_sq ~ normal(0,0.1);
 
   y ~ multi_normal(mu, V);
 }

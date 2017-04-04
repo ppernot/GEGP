@@ -57,11 +57,11 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
 ```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
 
 fmod = expression(sin(x))
-# fmod = expression(0.04*(x-5)^2)
+# fmod = expression((x-2)^2)
 
 # Generate data
 N1 = 6
-sd = 0.05
+sd = 0.02
 x_min = 1; x_max = 10
 x1 = seq(from = x_min, to = x_max, length.out = N1)
 y1 = eval(fmod,list(x=x1))  + sd*rnorm(N1)
@@ -92,7 +92,7 @@ mod = stan_model(file = 'GP.stan')
 
 input_data <- read_rdump("mydata.R")
 fit = sampling(mod, data = input_data,
-               iter = 1500, chains = 1, warmup = 500)
+               iter = 2000, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
 ab_summary <- summary(fit, pars = pars, 
@@ -111,12 +111,12 @@ title(main='Standard GP')
 ## Gradient-Enhanced GP
 
 ```{r GEGP}
-modGE = stan_model(file = 'GEGP.stan')
+modGE = stan_model(file = 'GEGP0.stan')
 
 input_data <- read_rdump("mydata.R")
 
 fitGE = sampling(modGE, data = input_data,
-                 iter = 1500, chains = 1, warmup = 500)
+                 iter = 2000, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
 ab_summary <- summary(fitGE, pars = pars, 
