@@ -1,14 +1,12 @@
 # GEGP
 
-Implementation of Gradients-Enhanced Kriging in stan.
+__Implementation of Gradients-Enhanced Kriging in `stan`.__
 
 At the moment:
 
-* 1D
+* 1D    
+* Noisy data and gradients    
+* Gaussian covariance. See _e.g._ [Ulaganathan (2016) Eng. Comp. 32:15-34](https://doi.org/10.1007%2Fs00366-015-0397-y)
 
-* Noisy data and gradients
-
-* Gaussian covariance^[Ulaganathan (2016) Eng. Comp. 32:15-34]
-
-(Exemple)[http://htmlpreview.github.io/?https://github.com/ppernot/GEGP/blob/master/TestGEGP.html] 
+[Exemple](http://htmlpreview.github.io/?https://github.com/ppernot/GEGP/blob/master/TestGEGP.html)
 
