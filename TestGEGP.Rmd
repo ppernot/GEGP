@@ -54,14 +54,14 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
 
 ## Synthetic data
 
-```{r robData, fig.cap='Data with outliers', fig.asp=0.7, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
 
 # fmod = expression(sin(x))
 fmod = expression(0.04*(x-5)^2)
 
 # Generate data
 N1 = 6
-sd = 0.05
+sd = 0.01
 x_min = 1; x_max = 10
 x1 = seq(from = x_min, to = x_max, length.out = N1)
 y1 = eval(fmod,list(x=x1))  + sd*rnorm(N1)
@@ -71,8 +71,10 @@ dy1 = as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
 udy1= rep(sd,length(x1))
 
 # Plot data points and gradients
-plot(x1,y1)
-segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1)
+plot(x1,y1,pch=19,col=2,cex=0.5)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1,y1-2*uy1,x1,y1+2*uy1,lwd=2,col=2)
+segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 
 # Prediction grid
 N2 = 50
@@ -85,12 +87,10 @@ stan_rdump(c("N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
 
 ## Standard GP
 
-```{r GP, cache=TRUE}
-stan_GP = paste0(readLines(con='GP.stan'),collapse='\n')
-
+```{r GP}
 input_data <- read_rdump("mydata.R")
 
-fit = stan(model_code = stan_GP, data = input_data,
+fit = stan(file = 'GP.stan', data = input_data,
            iter = 2500, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
@@ -101,19 +101,17 @@ knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 traceplot(fit,pars=pars)
 
 plot_predict(input_data,fit)
-lines(x2,eval(fmod,list(x=x2)),col=2)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 title(main='Standard GP')
 ```
 
 
 ## Gradient-Enhanced GP
 
-```{r GEGP, cache=TRUE}
-stan_GEGP = paste0(readLines(con='GEGP.stan'),collapse='\n')
-
+```{r GEGP}
 input_data <- read_rdump("mydata.R")
 
-fitGE = stan(model_code = stan_GEGP, data = input_data,
+fitGE = stan(file = 'GEGP.stan', data = input_data,
              iter = 2500, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
@@ -124,7 +122,8 @@ knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 traceplot(fitGE,pars=pars,inc_warmup=TRUE)
 
 plot_predict(input_data,fitGE) 
-lines(x2,eval(fmod,list(x=x2)),col=2)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 title(main='Gradient-enhanced GP')
 ```
 
@@ -134,9 +133,10 @@ title(main='Gradient-enhanced GP')
 ```{r compare, echo=FALSE, message=FALSE, warning=FALSE}
 par(mfrow = c(1,2))
 plot_predict(input_data,fit)
-lines(x2,eval(fmod,list(x=x2)),col=2)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 title(main='Standard GP')
 plot_predict(input_data,fitGE) 
-lines(x2,eval(fmod,list(x=x2)),col=2)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 title(main='Gradient-enhanced GP')
 ```
