@@ -13,7 +13,7 @@ output:
 ```{r setup, include=FALSE}
 rm(list = ls()); gc() # Clean environment
 
-libs =c('rstan','knitr','DiceKriging')
+libs =c('rstan','knitr','DiceKriging','numDeriv')
 for (lib in libs ) {
   if(!require(lib,character.only = TRUE))
     install.packages(lib,dependencies=TRUE)
@@ -24,29 +24,22 @@ rstan_options(auto_write = TRUE)
 set.seed(1234) # Initialise la graine du RNG
 
 # Couleurs transparente
-blue_tr  = rgb(0.1,0.1,0.9,alpha=0.1) 
+blue_tr  = rgb(0.1,0.1,0.9,alpha=0.3) 
 
 plot_predict2D <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
-  # Plot prediction intervals 
   
   y_pred = extract(fit,"y2")[[1]]
-  q_pred = matrix(NA,ncol=length(probs),nrow=length(data$x2))
-  for (i in 1:length(data$x2)) {
+  q_pred = matrix(NA,ncol=length(probs),nrow=data$N2)
+  for (i in 1:data$N2) {
     q_pred[i,] = quantile(y_pred[,i],probs=probs)
   }
-  
+
   par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
       pty='s',tcl=-0.5, cex=cex)
-  matplot(data$x2, data$x2, type='n',ylim=range(data$y1), 
-          xlab='x', ylab='y')
-  grid(); box()
-  polygon(cbind(data$x2,rev(data$x2)),
-          cbind(q_pred[,1],rev(q_pred[,3])),
-          col=blue_tr, border=NA)
-  lines(data$x2,q_pred[,2],lwd=2,col=4,lty=2)
-  points(data$x1,data$y1,type='p',pch=19,col=2,cex=0.5)
-  segments(data$x1,data$y1-2*data$uy1,data$x1,data$y1+2*data$uy1,
-           lwd=2,col=2)
+  contour(sort(unique(data$x2[,1])), 
+          sort(unique(data$x2[,2])), 
+          matrix(q_pred[,2], 10, 10), 
+          50, col=3, main="Median")
 }
 ```
 
@@ -55,52 +48,122 @@ plot_predict2D <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
 
 ```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
 
-x1 = expand.grid(x1=seq(0,1,length=4), x2=seq(0,1,length=4))
-n1 = nrow(x1)
+M=2 # Ndim
+
+n1 = 4
+x1 = expand.grid(x1=seq(0,1,length=n1), x2=seq(0,1,length=n1))
+N1 = nrow(x1)
 y1 = apply(x1, 1, branin) 
 uy1 = abs(y1 *0.05)
+y1 = y1 + rnorm(N1,0,uy1)
+
+dy1 = udy1 = matrix(N1,nrow=N1,ncol=M)
+for (i in 1:N1)
+  dy1[i,1:M] = numDeriv::grad(branin, t(x1[i,1:M]))
+
+udy1 = abs(dy1*0.05)
+dy1 = dy1 + matrix(rnorm(N1*M,0,udy1),ncol=M)
+
 
 # Prediction grid
-t1 = t2 = seq(0,1,length=10)
+n2 = 5
+t1 = t2 = seq(0.1,0.9,length=n2)
 x2 = expand.grid(x1=t1, x2=t2)
 y2_ref = apply(x2, 1, branin) 
-n2 = nrow(x2)
-
-# Plot data points and gradients
-contour(t1, t2, matrix(y2_ref, 10, 10), 50, main="Branin")
-points(x2[,1], x2[,2], pch=17, cex=1.5, col="blue")
+N2 = nrow(x2)
 
 # Save data
-stan_rdump(c("N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
+stan_rdump(c("M","N1", "x1","y1","uy1","dy1","udy1","N2","x2"), 
+           file="mydata2D.R")
+
+# Plot data points and gradients
+n2 = 20
+t1 = t2 = seq(0,1,length=n2)
+x2p = expand.grid(x1=t1, x2=t2)
+y2p = apply(x2p, 1, branin) 
+contour(t1, t2, matrix(y2p, n2, n2), 50, col=4, main="Branin")
+points(x1[,1], x1[,2], pch=19, cex=1.0, col=2)
+points(x2[,1], x2[,2], pch=17, cex=1.5, col=3)
 
 ```
 
 ## Standard GP
 
 ```{r GP}
-mod = stan_model(file = 'GP2D.stan')
+input_data <- read_rdump("mydata2D.R")
 
-input_data <- read_rdump("mydata.R")
+# Bayes GP
+mod = stan_model(file = 'GP2D.stan')
 fit = sampling(mod, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
-
 pars = c("eta_sq", "inv_rho_sq")
 ab_summary <- summary(fit, pars = pars, 
                       probs = c(0.025, 0.975))$summary
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
-traceplot(fit,pars=pars,inc_warmup=TRUE)
+traceplot(fit,pars=pars,inc_warmup=FALSE)
 pairs(fit,pars=pars)
+probs=c(0.025,0.5,0.975)
+y_p = extract(fit,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
+
+# plot_predict2D(input_data,fit)
+# contour(sort(unique(input_data$x2[,1])), 
+#         sort(unique(input_data$x2[,2])), 
+#         matrix(y2_ref, 10, 10), 
+#         50, col=blue_tr,lwd=2, add=TRUE)
+# points(input_data$x1[,1], input_data$x1[,2], 
+#        pch=19, cex=1.0, col=2)
+
+# DiceKriging
+m1 <- km(design=input_data$x1, 
+         response=input_data$y1,
+         noise.var=input_data$uy1^2, 
+         covtype="gauss",
+         coef.trend = mean(input_data$y1) )
+covparam2vect(m1@covariance)
+m1@covariance@sd2
+m1@trend.coef
+y_pred_m1  <- predict(m1, input_data$x2, "UK")$mean
+y_pred_m1l <- predict(m1, input_data$x2, "UK")$lower95
+y_pred_m1u <- predict(m1, input_data$x2, "UK")$upper95
+
+#Compare
+
+(rmsd = sqrt(sum((y2_ref-y_pred)^2/y2_ref^2)))
+(rmsd1 = sqrt(sum((y2_ref-y_pred_m1)^2/y2_ref^2)))
+
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Ref = ',nrow(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',nrow(input_data$x1),' points'))
+segments(y_pred_m1l,y2_ref,y_pred_m1u,y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
 ```
 
 
 ## Gradient-Enhanced GP
 
 ```{r GEGP}
-modGE = stan_model(file = 'GEGP0.stan')
+input_data <- read_rdump("mydata2D.R")
 
-input_data <- read_rdump("mydata.R")
-
+modGE = stan_model(file = 'GEGP2D.stan')
 fitGE = sampling(modGE, data = input_data,
                  iter = 2000, chains = 1, warmup = 1000)
 
@@ -109,28 +172,45 @@ ab_summary <- summary(fitGE, pars = pars,
                       probs = c(0.025, 0.975))$summary
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
-traceplot(fitGE,pars=pars,inc_warmup=TRUE)
+traceplot(fitGE,pars=pars,inc_warmup=FALSE)
 pairs(fitGE,pars=pars)
+probs=c(0.025,0.5,0.975)
+y_p = extract(fitGE,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
 
-plot_predict(input_data,fitGE) 
-lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
-segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
-title(main='Gradient-enhanced GP')
+# plot_predict2D(input_data,fit)
+# contour(sort(unique(input_data$x2[,1])), 
+#         sort(unique(input_data$x2[,2])), 
+#         matrix(y2_ref, 10, 10), 
+#         50, col=blue_tr,lwd=2, add=TRUE)
+# points(input_data$x1[,1], input_data$x1[,2], 
+#        pch=19, cex=1.0, col=2)
+
+(rmsd = sqrt(sum((y2_ref-y_pred)^2/y2_ref^2)))
+(rmsd1 = sqrt(sum((y2_ref-y_pred_m1)^2/y2_ref^2)))
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Ref = ',nrow(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',nrow(input_data$x1),' points'))
+segments(y_pred_m1l,y2_ref,y_pred_m1u,y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+
 ```
 
 
-## Comparison
-
-```{r compare, echo=FALSE, message=FALSE, warning=FALSE}
-par(mfrow = c(1,2))
-
-plot_predict(input_data,fit)
-lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
-title(main='Standard GP')
-
-plot_predict(input_data,fitGE) 
-lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
-segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
-title(main='Gradient-enhanced GP')
-
-```

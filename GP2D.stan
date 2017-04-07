@@ -8,17 +8,16 @@ data {
 }
 transformed data {
   real uy_m2;
-  int<lower=2>    N;
   matrix[N1+N2,2] x;
   vector[N1+N2]   mu;
   
-  N = N1 + N2;
-
-  for (i in 1:N1)     x[i,] = x1[i,];
-  for (i in (N1+1):N) x[i,] = x2[i-N1,];
+  for (i in 1:N1)     
+    x[i,] = x1[i,];
+  for (i in 1:N2) 
+    x[N1+i,] = x2[i,];
   
-  // Center y
-  for (i in 1:N)  mu[i] = mean(y1);
+  // Constant Trend
+  for (i in 1:(N1+N2))  mu[i] = mean(y1);
 
   // Mean variance for prediction
   uy_m2 = mean(uy1 .* uy1);
@@ -32,34 +31,35 @@ parameters {
 transformed parameters {
   real rho2[2];
   real eta2;  
-  cov_matrix[N] V;
+  cov_matrix[N1+N2] V;
  
   rho2 = inv(inv_rho_sq);
   eta2 = eta_sq; 
 
-  for (i in 1:N) 
-    for (j in i:N) {
-      V[i,j] = eta2 * exp(-rho2[1]* (x[i,1]-x[j,1])^2 
-                          -rho2[2]* (x[i,2]-x[j,2])^2); 
+  for (i in 1:(N1+N2)) 
+    for (j in i:(N1+N2)) {
+      V[i,j] = eta2 * exp(-rho2[1] * (x[i,1]-x[j,1])^2 
+                          -rho2[2] * (x[i,2]-x[j,2])^2); 
       V[j,i] = V[i,j];
     } 
     
-  for (i in 1:N1)           V[i,i] = V[i,i] + uy1[i]^2;
-  for (i in (N1+1):(N1+N2)) V[i,i] = V[i,i] + uy_m2;
+  for (i in 1:N1)           
+    V[i,i] = V[i,i] + uy1[i]^2;
+  for (i in 1:N2) 
+    V[N1+i,N1+i] = V[N1+i,N1+i] + uy_m2;
   
 }
 model {
-  vector[N] y;
+  vector[N1+N2] y;
 
-  for (i in 1:N1)     y[i] = y1[i];
-  for (i in (N1+1):N) y[i] = y2[i-N1];
+  for (i in 1:N1)     
+    y[i] = y1[i];
+  for (i in 1:N2) 
+    y[N1+i] = y2[i];
 
-  eta_sq     ~ normal(0,0.5);
-  inv_rho_sq ~ normal(0,0.1);
+  eta_sq     ~ cauchy(0,1);
+  inv_rho_sq ~ cauchy(0,1);
 
   y ~ multi_normal(mu, V);
 }
-generated quantities{
-}
- 
- 
+
