@@ -91,9 +91,10 @@ points(x2[,1], x2[,2], pch=17, cex=1.5, col=3)
 
 ```{r GP}
 input_data <- read_rdump("mydata2D.R")
+input_data$use_gradients = 0
 
 # Bayes GP
-mod = stan_model(file = 'GP2D.stan')
+mod = stan_model(file = 'GEGPND.stan')
 fit = sampling(mod, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
 pars = c("eta_sq", "inv_rho_sq")
@@ -143,7 +144,7 @@ par(mfrow=c(1,2))
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
     pty='s',tcl=-0.5, cex=1)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('Ref = ',nrow(input_data$x1),' points'))
+     main=paste0('GE: Ref = ',nrow(input_data$x1),' points'))
 segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
@@ -162,9 +163,9 @@ abline(a=0,b=1,col=2);grid();box()
 
 ```{r GEGP}
 input_data <- read_rdump("mydata2D.R")
+input_data$use_gradients = 1
 
-modGE = stan_model(file = 'GEGP2D.stan')
-fitGE = sampling(modGE, data = input_data,
+fitGE = sampling(mod, data = input_data,
                  iter = 2000, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
@@ -198,7 +199,7 @@ par(mfrow=c(1,2))
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
     pty='s',tcl=-0.5, cex=1)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('Ref = ',nrow(input_data$x1),' points'))
+     main=paste0('GEGP: Ref = ',nrow(input_data$x1),' points'))
 segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
@@ -210,7 +211,4 @@ plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
 segments(y_pred_m1l,y2_ref,y_pred_m1u,y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
-
 ```
-
-

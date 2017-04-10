@@ -55,24 +55,26 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
 ## Synthetic data
 
 ```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
+# Dimensions
+M=1
 
-fmod = expression(sin(x))
+fmod = expression(sin(x+0.5))
 # fmod = expression((x-2)^2)
 
 # Generate data
 N1 = 6
 sd = 0.02
 x_min = 1; x_max = 10
-x1 = seq(from = x_min, to = x_max, length.out = N1)
-y1 = eval(fmod,list(x=x1))  + sd*rnorm(N1)
+x1 = as.matrix(seq(from = x_min, to = x_max, length.out = N1),ncol=1)
+y1 = as.vector(eval(fmod,list(x=x1))  + sd*rnorm(N1))
 uy1= rep(sd,length(x1))
-dy1 = as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
-  sd*rnorm(N1)
-udy1= rep(sd,length(x1))
+dy1 = as.matrix(as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
+  sd*rnorm(N1),ncol=1)
+udy1= as.matrix(rep(sd,length(x1)),ncol=1)
 
 # Prediction grid
 N2 = 50
-x2 = seq(-1,11,length.out = N2)
+x2 = as.matrix(seq(-1,11,length.out = N2),ncol=1)
 y2_ref = eval(fmod,list(x=x2))
   
 # Plot data points and gradients
@@ -82,16 +84,17 @@ segments(x1,y1-2*uy1,x1,y1+2*uy1,lwd=2,col=2)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 
 # Save data
-stan_rdump(c("N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
+stan_rdump(c("M","N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
 
 ```
 
 ## Standard GP
 
 ```{r GP}
-mod = stan_model(file = 'GP.stan')
-
 input_data <- read_rdump("mydata.R")
+input_data$use_gradients = 0
+
+mod = stan_model(file = 'GEGPND.stan')
 fit = sampling(mod, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
 
@@ -110,7 +113,7 @@ m1 <- km(design     = data.frame(input_data$x1),
          response   = input_data$y1,
          noise.var  = input_data$uy1^2, 
          covtype    = "gauss",
-         multistart = 5,
+         optim.method= "gen",
          coef.trend = mean(input_data$y1) )
 m1@covariance@sd2
 covparam2vect(m1@covariance)
@@ -127,7 +130,7 @@ par(mfrow=c(1,2))
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
     pty='s',tcl=-0.5, cex=1)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('Ref = ',length(input_data$x1),' points'))
+     main=paste0('GP: Ref = ',length(input_data$x1),' points'))
 abline(a=0,b=1,col=2);grid();box()
 
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
@@ -142,11 +145,10 @@ abline(a=0,b=1,col=2);grid();box()
 ## Gradient-Enhanced GP
 
 ```{r GEGP}
-modGE = stan_model(file = 'GEGP0.stan')
-
 input_data <- read_rdump("mydata.R")
+input_data$use_gradients = 1
 
-fitGE = sampling(modGE, data = input_data,
+fitGE = sampling(mod, data = input_data,
                  iter = 2000, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
@@ -156,26 +158,41 @@ knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
 traceplot(fitGE,pars=pars,inc_warmup=TRUE)
 pairs(fitGE,pars=pars)
+y_pred = apply(extract(fit,"y2")[[1]],2,mean)
 
 plot_predict(input_data,fitGE) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 title(main='Gradient-enhanced GP')
-```
 
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GEGP: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+```
 
 ## Comparison
 
-```{r compare, echo=FALSE, message=FALSE, warning=FALSE}
-par(mfrow = c(1,2))
-
+```{r compare}
+par(mfrow=c(1,2))
 plot_predict(input_data,fit)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 title(main='Standard GP')
+# lines(x2,y_pred_m1,lty=3,col='orange',lwd=2)
 
 plot_predict(input_data,fitGE) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 title(main='Gradient-enhanced GP')
-
 ```
+

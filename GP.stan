@@ -60,7 +60,7 @@ model {
   for (i in (N1+1):N) y[i] = y2[i-N1];
 
   eta_sq     ~ cauchy(0,1);
-  inv_rho_sq ~ cauc(0,0.1);
+  inv_rho_sq ~ cauchy(0,1);
 
   y ~ multi_normal(mu, V);
 }
