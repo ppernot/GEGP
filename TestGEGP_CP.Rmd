@@ -1,0 +1,210 @@
+--- 
+title: "Gradient-enhanced Gaussian Process Regression"
+subtitle: "Separate calibration from prediction..."
+author: "Pascal Pernot"
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    highlight: tango
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+rm(list = ls()); gc() # Clean environment
+
+libs =c('rstan','knitr','DiceKriging')
+for (lib in libs ) {
+  if(!require(lib,character.only = TRUE))
+    install.packages(lib,dependencies=TRUE)
+ library(lib,character.only = TRUE)
+}
+rstan_options(auto_write = TRUE)
+
+set.seed(1234) # Initialise la graine du RNG
+
+# Couleurs transparente
+blue_tr  = rgb(0.1,0.1,0.9,alpha=0.1) 
+
+plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
+  # Plot prediction intervals 
+  
+  y_pred = extract(fit,"y2")[[1]]
+  q_pred = matrix(NA,ncol=length(probs),nrow=length(data$x2))
+  for (i in 1:length(data$x2)) {
+    q_pred[i,] = quantile(y_pred[,i],probs=probs)
+  }
+  
+  par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+      pty='s',tcl=-0.5, cex=cex)
+  matplot(data$x2, data$x2, type='n',ylim=range(data$y1), 
+          xlab='x', ylab='y')
+  grid(); box()
+  polygon(cbind(data$x2,rev(data$x2)),
+          cbind(q_pred[,1],rev(q_pred[,3])),
+          col=blue_tr, border=NA)
+  lines(data$x2,q_pred[,2],lwd=2,col=4,lty=2)
+  points(data$x1,data$y1,type='p',pch=19,col=2,cex=0.5)
+  segments(data$x1,data$y1-2*data$uy1,data$x1,data$y1+2*data$uy1,
+           lwd=2,col=2)
+}
+```
+
+# Synthetic data
+
+```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
+# Dimensions
+M=1
+
+fmod = expression(sin(x+0.5))
+# fmod = expression((x-2)^2)
+
+# Generate data
+N1 = 6
+sd = 0.02
+x_min = 1; x_max = 10
+x1 = as.matrix(seq(from = x_min, to = x_max, length.out = N1),ncol=1)
+y1 = as.vector(eval(fmod,list(x=x1))  + sd*rnorm(N1))
+uy1= rep(sd,length(x1))
+dy1 = as.matrix(as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
+  sd*rnorm(N1),ncol=1)
+udy1= as.matrix(rep(sd,length(x1)),ncol=1)
+
+# Prediction grid
+N2 = 50
+x2 = as.matrix(seq(-1,11,length.out = N2),ncol=1)
+y2_ref = eval(fmod,list(x=x2))
+  
+# Plot data points and gradients
+plot(x1,y1,pch=19,col=2,cex=0.5)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1,y1-2*uy1,x1,y1+2*uy1,lwd=2,col=2)
+segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
+
+# Save data
+stan_rdump(c("M","N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
+
+```
+
+# Standard GP
+
+```{r GP}
+input_data <- read_rdump("mydata.R")
+input_data$use_gradients = 0
+
+modCal = stan_model(file = 'GEGPNDCal.stan')
+fit = sampling(modCal, data = input_data,
+               iter = 2000, chains = 1, warmup = 1000)
+
+pars = c("eta_sq", "inv_rho_sq")
+ab_summary <- summary(fit, pars = pars, 
+                      probs = c(0.025, 0.975))$summary
+knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
+
+traceplot(fit,pars=pars,inc_warmup=TRUE)
+pairs(fit,pars=pars)
+
+modPred = stan_model(file = 'GEGPNDPred.stan')
+input_data$eta_sq     = mean(extract(fit)$eta_sq)
+input_data$inv_rho_sq = as.array(colMeans(extract(fit)$inv_rho_sq),dim=c(1,0))
+
+fitp = sampling(modPred, data = input_data,
+               iter = 2000, chains = 1, warmup = 1000)
+y_pred = apply(extract(fitp,"y2")[[1]],2,mean)
+
+
+# DiceKriging
+m1 <- km(design     = data.frame(input_data$x1), 
+         response   = input_data$y1,
+         noise.var  = input_data$uy1^2, 
+         covtype    = "gauss",
+         optim.method= "gen",
+         coef.trend = mean(input_data$y1) )
+m1@covariance@sd2
+covparam2vect(m1@covariance)
+y_pred_m1 <- predict(m1, input_data$x2, "UK")$mean
+
+# Compare
+plot_predict(input_data,fitp)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+title(main='Standard GP')
+lines(x2,y_pred_m1,lty=3,col='orange',lwd=2)
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GP: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+```
+
+
+# Gradient-Enhanced GP
+
+```{r GEGP}
+input_data <- read_rdump("mydata.R")
+input_data$use_gradients = 1
+
+fitGE = sampling(modCal, data = input_data,
+                 iter = 2000, chains = 1, warmup = 1000)
+
+pars = c("eta_sq", "inv_rho_sq")
+ab_summary <- summary(fitGE, pars = pars, 
+                      probs = c(0.025, 0.975))$summary
+knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
+
+traceplot(fitGE,pars=pars,inc_warmup=TRUE)
+pairs(fitGE,pars=pars)
+
+input_data$eta_sq     = mean(extract(fitGE)$eta_sq)
+input_data$inv_rho_sq = as.array(colMeans(extract(fitGE)$inv_rho_sq),dim=c(1,0))
+
+fitGEp = sampling(modPred, data = input_data,
+               iter = 2000, chains = 1, warmup = 1000)
+y_pred = apply(extract(fitGEp,"y2")[[1]],2,mean)
+
+plot_predict(input_data,fitGEp) 
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
+title(main='Gradient-enhanced GP')
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GEGP: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+```
+
+## Comparison
+
+```{r compare}
+par(mfrow=c(1,2))
+plot_predict(input_data,fitp)
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+title(main='Standard GP')
+# lines(x2,y_pred_m1,lty=3,col='orange',lwd=2)
+
+plot_predict(input_data,fitGEp) 
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
+title(main='Gradient-enhanced GP')
+```
+

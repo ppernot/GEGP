@@ -44,7 +44,7 @@ plot_predict2D <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
 ```
 
 
-## Synthetic data
+# Synthetic data
 
 ```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -87,7 +87,7 @@ points(x2[,1], x2[,2], pch=17, cex=1.5, col=3)
 
 ```
 
-## Standard GP
+# Standard GP
 
 ```{r GP}
 input_data <- read_rdump("mydata2D.R")
@@ -159,7 +159,7 @@ abline(a=0,b=1,col=2);grid();box()
 ```
 
 
-## Gradient-Enhanced GP
+# Gradient-Enhanced GP
 
 ```{r GEGP}
 input_data <- read_rdump("mydata2D.R")
