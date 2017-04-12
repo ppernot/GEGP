@@ -1,0 +1,215 @@
+--- 
+title: "2D Gradient-enhanced Gaussian Process Regression"
+subtitle: "Separate calibration from prediction"
+author: "Pascal Pernot"
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    highlight: tango
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+rm(list = ls()); gc() # Clean environment
+
+libs =c('rstan','knitr','DiceKriging','numDeriv')
+for (lib in libs ) {
+  if(!require(lib,character.only = TRUE))
+    install.packages(lib,dependencies=TRUE)
+ library(lib,character.only = TRUE)
+}
+rstan_options(auto_write = TRUE)
+
+set.seed(1234) # Initialise la graine du RNG
+
+# Couleurs transparente
+blue_tr  = rgb(0.1,0.1,0.9,alpha=0.3) 
+
+plot_predict2D <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
+  
+  y_pred = extract(fit,"y2")[[1]]
+  q_pred = matrix(NA,ncol=length(probs),nrow=data$N2)
+  for (i in 1:data$N2) {
+    q_pred[i,] = quantile(y_pred[,i],probs=probs)
+  }
+
+  par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+      pty='s',tcl=-0.5, cex=cex)
+  contour(sort(unique(data$x2[,1])), 
+          sort(unique(data$x2[,2])), 
+          matrix(q_pred[,2], 10, 10), 
+          50, col=3, main="Median")
+}
+```
+
+
+## Synthetic data
+
+```{r robData, echo=FALSE, message=FALSE, warning=FALSE}
+
+M=2 # Ndim
+
+n1 = 4
+x1 = expand.grid(x1=seq(0,1,length=n1), x2=seq(0,1,length=n1))
+N1 = nrow(x1)
+y1 = apply(x1, 1, branin) 
+uy1 = abs(y1 *0.05)
+y1 = y1 + rnorm(N1,0,uy1)
+
+dy1 = udy1 = matrix(N1,nrow=N1,ncol=M)
+for (i in 1:N1)
+  dy1[i,1:M] = numDeriv::grad(branin, t(x1[i,1:M]))
+
+udy1 = abs(dy1*0.05)
+dy1 = dy1 + matrix(rnorm(N1*M,0,udy1),ncol=M)
+
+
+# Prediction grid
+n2 = 5
+t1 = t2 = seq(0.1,0.9,length=n2)
+x2 = expand.grid(x1=t1, x2=t2)
+y2_ref = apply(x2, 1, branin) 
+N2 = nrow(x2)
+
+# Save data
+stan_rdump(c("M","N1", "x1","y1","uy1","dy1","udy1","N2","x2"), 
+           file="mydata2D.R")
+
+# Plot data points and gradients
+n2 = 20
+t1 = t2 = seq(0,1,length=n2)
+x2p = expand.grid(x1=t1, x2=t2)
+y2p = apply(x2p, 1, branin) 
+contour(t1, t2, matrix(y2p, n2, n2), 50, col=4, main="Branin")
+points(x1[,1], x1[,2], pch=19, cex=1.0, col=2)
+points(x2[,1], x2[,2], pch=17, cex=1.5, col=3)
+
+```
+
+## Standard GP
+
+```{r GP}
+input_data <- read_rdump("mydata2D.R")
+input_data$use_gradients = 0
+
+# Bayes GP
+modCal = stan_model(file = 'GEGPNDCal.stan')
+fit = sampling(modCal, data = input_data,
+               iter = 2000, chains = 1, warmup = 1000)
+pars = c("eta_sq", "inv_rho_sq")
+ab_summary <- summary(fit, pars = pars, 
+                      probs = c(0.025, 0.975))$summary
+knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
+
+traceplot(fit,pars=pars,inc_warmup=FALSE)
+pairs(fit,pars=pars)
+
+modPred = stan_model(file = 'GEGPNDPred.stan')
+input_data$eta_sq     = mean(extract(fit)$eta_sq)
+input_data$inv_rho_sq = colMeans(extract(fit)$inv_rho_sq)
+
+fitp = sampling(modPred, data = input_data,
+               iter = 2000, chains = 1, warmup = 1000)
+
+probs=c(0.025,0.5,0.975)
+y_p = extract(fitp,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
+
+# DiceKriging
+m1 <- km(design=input_data$x1,
+         response=input_data$y1,
+         noise.var=input_data$uy1^2,
+         covtype="gauss",
+         coef.trend = mean(input_data$y1) )
+covparam2vect(m1@covariance)
+m1@covariance@sd2
+m1@trend.coef
+y_pred_m1  <- predict(m1, input_data$x2, "UK")$mean
+y_pred_m1l <- predict(m1, input_data$x2, "UK")$lower95
+y_pred_m1u <- predict(m1, input_data$x2, "UK")$upper95
+
+#Compare
+
+(rmsd = sqrt(sum((y2_ref-y_pred)^2/y2_ref^2)))
+(rmsd1 = sqrt(sum((y2_ref-y_pred_m1)^2/y2_ref^2)))
+
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0),
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GE: Ref = ',nrow(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0),
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',nrow(input_data$x1),' points'))
+segments(y_pred_m1l,y2_ref,y_pred_m1u,y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+```
+
+
+## Gradient-Enhanced GP
+
+```{r GEGP}
+input_data <- read_rdump("mydata2D.R")
+input_data$use_gradients = 1
+
+fitGE = sampling(mod, data = input_data,
+                 iter = 2000, chains = 1, warmup = 1000)
+
+pars = c("eta_sq", "inv_rho_sq")
+ab_summary <- summary(fitGE, pars = pars, 
+                      probs = c(0.025, 0.975))$summary
+knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
+
+traceplot(fitGE,pars=pars,inc_warmup=FALSE)
+pairs(fitGE,pars=pars)
+
+
+input_data$eta_sq     = mean(extract(fitGE)$eta_sq)
+input_data$inv_rho_sq = colMeans(extract(fitGE)$inv_rho_sq)
+
+fitGEp = sampling(modPred, data = input_data,
+               iter = 2000, chains = 1, warmup = 1000)
+
+probs=c(0.025,0.5,0.975)
+y_p = extract(fitGEp,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
+
+(rmsd = sqrt(sum((y2_ref-y_pred)^2/y2_ref^2)))
+(rmsd1 = sqrt(sum((y2_ref-y_pred_m1)^2/y2_ref^2)))
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0),
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GEGP: Ref = ',nrow(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0),
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',nrow(input_data$x1),' points'))
+segments(y_pred_m1l,y2_ref,y_pred_m1u,y2_ref,col=blue_tr,lwd=2)
+abline(a=0,b=1,col=2);grid();box()
+
+```

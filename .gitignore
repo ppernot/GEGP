@@ -5,5 +5,5 @@
 *_cache
 *_files
 *.rds
-mydata.R
+mydata*.R
 Old
