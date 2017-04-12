@@ -9,3 +9,6 @@ At the moment:
 [Exemple_1d](http://htmlpreview.github.io/?https://github.com/ppernot/GEGP/blob/master/TestGEGP.html)
 
 [Exemple_2d](http://htmlpreview.github.io/?https://github.com/ppernot/GEGP/blob/master/TestGEGP2D.html)
+
+[Exemple_2d](http://htmlpreview.github.io/?https://github.com/ppernot/GEGP/blob/master/TestGEGP2D_CP.html)
+with separate calibration and prediction. Much faster, but one looses the uncertainty due to the GP params...
