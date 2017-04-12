@@ -166,7 +166,7 @@ abline(a=0,b=1,col=2);grid();box()
 input_data <- read_rdump("mydata2D.R")
 input_data$use_gradients = 1
 
-fitGE = sampling(mod, data = input_data,
+fitGE = sampling(modCal, data = input_data,
                  iter = 2000, chains = 1, warmup = 1000)
 
 pars = c("eta_sq", "inv_rho_sq")
