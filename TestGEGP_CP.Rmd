@@ -27,7 +27,7 @@ set.seed(1234) # Initialise la graine du RNG
 # Couleurs transparente
 blue_tr  = rgb(0.1,0.1,0.9,alpha=0.1) 
 
-plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
+plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1,ylim=NULL) {
   # Plot prediction intervals 
   
   y_pred = extract(fit,"y2")[[1]]
@@ -36,8 +36,9 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
     q_pred[i,] = quantile(y_pred[,i],probs=probs)
   }
   
-  ylim=c(min(c(data$y1-2*data$uy1,q_pred)),
-         max(c(data$y1+2*data$uy1,q_pred)))
+  if(is.null(ylim))
+    ylim=c(min(c(data$y1-2*data$uy1,q_pred)),
+           max(c(data$y1+2*data$uy1,q_pred)))
   par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
       pty='s',tcl=-0.5, cex=cex)
   matplot(data$x2, data$x2, type='n',ylim=ylim, 
@@ -300,45 +301,69 @@ abline(a=0,b=1,col=2);grid();box()
 ## Comparison
 
 ```{r compare1,fig.height=8}
+
+probs=c(0.025,0.5,0.975)
 xlim=range(y2_ref)
+
 par(mfrow=c(2,2))
+
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
     pty='s',tcl=-0.5, cex=1)
-y_pred = apply(extract(fitp,"y2")[[1]],2,mean)
+y_p = extract(fitp,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
      main=paste0('GP: Ref = ',length(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
     pty='s',tcl=-0.5, cex=1)
-y_pred = apply(extract(fitGEp,"y2")[[1]],2,mean)
+y_p = extract(fitGEp,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
      main=paste0('GEGP: Ref = ',length(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
     pty='s',tcl=-0.5, cex=1)
-y_pred = apply(extract(fitGEUncp,"y2")[[1]],2,mean)
+y_p = extract(fitGEUncp,"y2")[[1]]
+q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
+for (i in 1:input_data$N2) {
+  q_pred[i,] = quantile(y_p[,i],probs=probs)
+}
+y_pred = apply(y_p,2,mean)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
      main=paste0('GEGP sd_big: Ref = ',length(input_data$x1),' points'))
+segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
 ```
 
 
 ```{r compare,fig.height=8}
+ylim=c(-1.5,1.5)
+
 par(mfrow=c(2,2))
-plot_predict(input_data,fitp)
+plot_predict(input_data,fitp,ylim=ylim)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 title(main='Standard GP')
 # lines(x2,y_pred_m1,lty=3,col='orange',lwd=2)
 
-plot_predict(input_data,fitGEp) 
+plot_predict(input_data,fitGEp,ylim=ylim) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
 title(main=paste0('Gradient-enhanced GP, sd=',sd))
 
-plot_predict(input_data1,fitGEUncp) 
+plot_predict(input_data1,fitGEUncp,ylim=ylim) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1-0.1,y1-0.1*input_data1$dy1,
          x1+0.1,y1+0.1*input_data1$dy1,lwd=2,col=3)
