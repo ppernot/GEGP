@@ -36,9 +36,11 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
     q_pred[i,] = quantile(y_pred[,i],probs=probs)
   }
   
+  ylim=c(min(c(data$y1-2*data$uy1,q_pred)),
+         max(c(data$y1+2*data$uy1,q_pred)))
   par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
       pty='s',tcl=-0.5, cex=cex)
-  matplot(data$x2, data$x2, type='n',ylim=range(data$y1), 
+  matplot(data$x2, data$x2, type='n',ylim=ylim, 
           xlab='x', ylab='y')
   grid(); box()
   polygon(cbind(data$x2,rev(data$x2)),
@@ -49,6 +51,47 @@ plot_predict <- function(data,fit,probs=c(0.025,0.5,0.975),cex=1) {
   segments(data$x1,data$y1-2*data$uy1,data$x1,data$y1+2*data$uy1,
            lwd=2,col=2)
 }
+
+plot_resid <- function(data, fit, probs=c(0.025,0.5,0.975),
+                       ylim=NULL, grad=FALSE, cex=1) {
+  # Plot prediction intervals 
+  
+  y_pred = extract(fit,"y2")[[1]]
+  q_pred = matrix(NA,ncol=length(probs),nrow=length(data$x2))
+  for (i in 1:length(data$x2)) {
+    q_pred[i,] = quantile(y_pred[,i],probs=probs)
+  }
+  
+  yref = eval(fmod,list(x=data$x2))
+  q_pred = q_pred-cbind(yref,yref,yref)
+  
+  if(is.null(ylim))
+    ylim= range(q_pred[,2])
+  par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+      pty='s',tcl=-0.5, cex=cex)
+  matplot(data$x2, data$x2, type='n',ylim=ylim, 
+          xlab='x', ylab='Residuals')
+  grid(); box(); abline(h=0,lty=2)
+  polygon(cbind(data$x2,rev(data$x2)),
+          cbind(q_pred[,1],rev(q_pred[,3])),
+          col=blue_tr, border=NA)
+  lines(data$x2,q_pred[,2],lwd=2,col=4,lty=2)
+  
+
+  res1 = data$y1 - eval(fmod,list(x=data$x1))   
+  points(data$x1,res1,type='p',pch=19,col=2,cex=0.5)
+  segments(data$x1,res1-2*data$uy1,data$x1,res1+2*data$uy1,
+           lwd=2,col=2)
+  if(grad) {
+    gref = as.vector(
+      attr(eval(deriv(fmod,"x"),list(x=data$x1)),"gradient"))
+    dg = data$dy1 - gref
+    del = 0.5
+    segments(data$x1-del,res1-del*dg,
+             data$x1+del,res1+del*dg,lwd=2,col=3)
+  }
+}
+
 ```
 
 # Synthetic data
@@ -72,7 +115,7 @@ dy1 = as.matrix(as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
 udy1= as.matrix(rep(sd,length(x1)),ncol=1)
 
 # Prediction grid
-N2 = 50
+N2 = 100
 x2 = as.matrix(seq(-1,11,length.out = N2),ncol=1)
 y2_ref = eval(fmod,list(x=x2))
   
@@ -165,8 +208,12 @@ knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 traceplot(fitGE,pars=pars,inc_warmup=TRUE)
 pairs(fitGE,pars=pars)
 
-input_data$eta_sq     = mean(extract(fitGE)$eta_sq)
-input_data$inv_rho_sq = as.array(colMeans(extract(fitGE)$inv_rho_sq),dim=c(1,0))
+# input_data$eta_sq     = mean(extract(fitGE)$eta_sq)
+# input_data$inv_rho_sq = as.array(colMeans(extract(fitGE)$inv_rho_sq),dim=c(1,0))
+
+map =which.max(extract(fitGE)$lp__)
+input_data$eta_sq     = extract(fitGE)$eta_sq[map]
+input_data$inv_rho_sq = as.array(extract(fitGE)$inv_rho_sq[map],dim=c(1,0))
 
 fitGEp = sampling(modPred, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
@@ -193,10 +240,94 @@ abline(a=0,b=1,col=2);grid();box()
 
 ```
 
+# Impact of grandients uncertainty
+
+```{r GEGPUnc}
+input_data1 <- read_rdump("mydata.R")
+input_data1$use_gradients = 1
+
+sd_big=0.2
+input_data1$dy1 = as.matrix(
+  as.vector(
+    attr(
+      eval(deriv(fmod,"x"),list(x=x1)),
+      "gradient")
+    ) +
+  sd_big*rnorm(N1),ncol=1)
+input_data1$udy1= as.matrix(rep(sd_big,length(x1)),ncol=1)
+
+fitGEUnc = sampling(modCal, data = input_data1,
+                    iter = 2000, chains = 1, warmup = 1000)
+
+pars = c("eta_sq", "inv_rho_sq")
+ab_summary <- summary(fitGEUnc, pars = pars, 
+                      probs = c(0.025, 0.975))$summary
+knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
+
+traceplot(fitGEUnc,pars=pars,inc_warmup=TRUE)
+pairs(fitGEUnc,pars=pars)
+
+map =which.max(extract(fitGEUnc)$lp__)
+input_data1$eta_sq     = extract(fitGEUnc)$eta_sq[map]
+input_data1$inv_rho_sq = as.array(extract(fitGEUnc)$inv_rho_sq[map],dim=c(1,0))
+
+fitGEUncp = sampling(modPred, data = input_data1,
+               iter = 2000, chains = 1, warmup = 1000)
+y_pred = apply(extract(fitGEUncp,"y2")[[1]],2,mean)
+
+plot_predict(input_data1,fitGEUncp) 
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1-0.1,y1-0.1*input_data1$dy1,
+         x1+0.1,y1+0.1*input_data1$dy1,lwd=2,col=3)
+title(main='Gradient-enhanced GP')
+
+xlim=range(y2_ref)
+par(mfrow=c(1,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GEGP: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+```
+
 ## Comparison
 
-```{r compare}
-par(mfrow=c(1,2))
+```{r compare1,fig.height=8}
+xlim=range(y2_ref)
+par(mfrow=c(2,2))
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+y_pred = apply(extract(fitp,"y2")[[1]],2,mean)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GP: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+y_pred = apply(extract(fitGEp,"y2")[[1]],2,mean)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GEGP: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
+    pty='s',tcl=-0.5, cex=1)
+y_pred = apply(extract(fitGEUncp,"y2")[[1]],2,mean)
+plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
+     main=paste0('GEGP sd_big: Ref = ',length(input_data$x1),' points'))
+abline(a=0,b=1,col=2);grid();box()
+
+```
+
+
+```{r compare,fig.height=8}
+par(mfrow=c(2,2))
 plot_predict(input_data,fitp)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 title(main='Standard GP')
@@ -205,6 +336,27 @@ title(main='Standard GP')
 plot_predict(input_data,fitGEp) 
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
-title(main='Gradient-enhanced GP')
+title(main=paste0('Gradient-enhanced GP, sd=',sd))
+
+plot_predict(input_data1,fitGEUncp) 
+lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+segments(x1-0.1,y1-0.1*input_data1$dy1,
+         x1+0.1,y1+0.1*input_data1$dy1,lwd=2,col=3)
+title(main=paste0('Gradient-enhanced GP, sd=',sd_big))
+
 ```
 
+
+```{r compareResid,fig.height=8}
+par(mfrow=c(2,2))
+ylim=c(-0.6,0.6)
+plot_resid(input_data,fitp,ylim=ylim)
+title(main='Standard GP')
+
+plot_resid(input_data,fitGEp,ylim=ylim,grad=TRUE)
+title(main=paste0('Gradient-enhanced GP, sd=',sd))
+
+plot_resid(input_data1,fitGEUncp,ylim=ylim,grad=TRUE)
+title(main=paste0('Gradient-enhanced GP, sd=',sd_big))
+
+```
