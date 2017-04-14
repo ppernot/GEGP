@@ -133,9 +133,6 @@ model {
       for (i in 1:N1) 
          y[k*N1+N2+i] = dy1[i,k]; 
 
-  eta_sq     ~ cauchy(0,5);
-  inv_rho_sq ~ cauchy(0,5);
-
   y ~ multi_normal_cholesky(mu, L);
 }
   
