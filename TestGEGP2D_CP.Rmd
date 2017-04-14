@@ -81,9 +81,15 @@ n2 = 20
 t1 = t2 = seq(0,1,length=n2)
 x2p = expand.grid(x1=t1, x2=t2)
 y2p = apply(x2p, 1, branin) 
-contour(t1, t2, matrix(y2p, n2, n2), 50, col=4, main="Branin")
-points(x1[,1], x1[,2], pch=19, cex=1.0, col=2)
-points(x2[,1], x2[,2], pch=17, cex=1.5, col=3)
+contour(t1, t2, matrix(y2p, n2, n2), 50, col=4, main="Branin function",
+        ylim=c(0,1.2))
+points(x1[,1], x1[,2], pch=19, cex=1.2, col=2)
+points(x2[,1], x2[,2], pch=17, cex=1.2, col=3)
+legend('topleft',
+       legend = c('Calib. pt.','Pred. pt.'),
+       col = c(2,3), pch=c(19,17), cex=1.2,
+       ncol=2, bg = 'gray90', box.col='gray90')
+box()
 
 ```
 
@@ -129,9 +135,10 @@ m1 <- km(design=input_data$x1,
 covparam2vect(m1@covariance)
 m1@covariance@sd2
 m1@trend.coef
-y_pred_m1  <- predict(m1, input_data$x2, "UK")$mean
-y_pred_m1l <- predict(m1, input_data$x2, "UK")$lower95
-y_pred_m1u <- predict(m1, input_data$x2, "UK")$upper95
+dice_pred = predict(m1, input_data$x2, "UK")
+y_pred_m1  <- dice_pred$mean
+y_pred_m1l <- dice_pred$lower95
+y_pred_m1u <- dice_pred$upper95
 
 #Compare
 
@@ -144,7 +151,7 @@ par(mfrow=c(1,2))
 par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0),
     pty='s',tcl=-0.5, cex=1)
 plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('GE: Ref = ',nrow(input_data$x1),' points'))
+     main=paste0('GP: Ref = ',nrow(input_data$x1),' points'))
 segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 

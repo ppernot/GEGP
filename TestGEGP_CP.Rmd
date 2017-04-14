@@ -125,6 +125,9 @@ plot(x1,y1,pch=19,col=2,cex=0.5)
 lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
 segments(x1,y1-2*uy1,x1,y1+2*uy1,lwd=2,col=2)
 segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
+legend(3,1,
+       legend = c('95% C.I. Cal. data','Cal. gradients'),
+       col=c(2,3),lwd=2,lty=1,bty='n')
 
 # Save data
 stan_rdump(c("M","N1", "x1","y1","uy1","dy1","udy1","N2","x2"), file="mydata.R")
@@ -170,10 +173,10 @@ covparam2vect(m1@covariance)
 y_pred_m1 <- predict(m1, input_data$x2, "UK")$mean
 
 # Compare
-plot_predict(input_data,fitp)
-lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
-title(main='Standard GP')
-lines(x2,y_pred_m1,lty=3,col='orange',lwd=2)
+# plot_predict(input_data,fitp)
+# lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+# title(main='Standard GP')
+# lines(x2,y_pred_m1,lty=3,col='orange',lwd=2)
 
 xlim=range(y2_ref)
 par(mfrow=c(1,2))
@@ -191,6 +194,7 @@ abline(a=0,b=1,col=2);grid();box()
 
 ```
 
+__Note__: DiceKriging fails on this example...
 
 # Gradient-Enhanced GP
 
@@ -220,10 +224,10 @@ fitGEp = sampling(modPred, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
 y_pred = apply(extract(fitGEp,"y2")[[1]],2,mean)
 
-plot_predict(input_data,fitGEp) 
-lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
-segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
-title(main='Gradient-enhanced GP')
+# plot_predict(input_data,fitGEp) 
+# lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+# segments(x1-0.1,y1-0.1*dy1,x1+0.1,y1+0.1*dy1,lwd=2,col=3)
+# title(main='Gradient-enhanced GP')
 
 xlim=range(y2_ref)
 par(mfrow=c(1,2))
@@ -276,11 +280,11 @@ fitGEUncp = sampling(modPred, data = input_data1,
                iter = 2000, chains = 1, warmup = 1000)
 y_pred = apply(extract(fitGEUncp,"y2")[[1]],2,mean)
 
-plot_predict(input_data1,fitGEUncp) 
-lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
-segments(x1-0.1,y1-0.1*input_data1$dy1,
-         x1+0.1,y1+0.1*input_data1$dy1,lwd=2,col=3)
-title(main='Gradient-enhanced GP')
+# plot_predict(input_data1,fitGEUncp) 
+# lines(x2,eval(fmod,list(x=x2)),col=2,lty=3)
+# segments(x1-0.1,y1-0.1*input_data1$dy1,
+#          x1+0.1,y1+0.1*input_data1$dy1,lwd=2,col=3)
+# title(main='Gradient-enhanced GP')
 
 xlim=range(y2_ref)
 par(mfrow=c(1,2))
@@ -298,8 +302,9 @@ abline(a=0,b=1,col=2);grid();box()
 
 ```
 
-## Comparison
+# Comparison
 
+<!--
 ```{r compare1,fig.height=8}
 
 probs=c(0.025,0.5,0.975)
@@ -347,7 +352,7 @@ segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
 abline(a=0,b=1,col=2);grid();box()
 
 ```
-
+-->
 
 ```{r compare,fig.height=8}
 ylim=c(-1.5,1.5)
