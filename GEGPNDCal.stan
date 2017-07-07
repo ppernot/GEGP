@@ -24,10 +24,38 @@ data {
   int<lower=0,upper=1> use_gradients;
   matrix[N1,M] dy1;
   matrix[N1,M] udy1;
+  
 }
 transformed data {
   vector[N1*(1+use_gradients*M)]   mu;
+  matrix[N1,M] x;
+  vector[M] scale_x;
+  matrix[N1,M] dys;
+  matrix[N1,M] udys;
+  real avd;
+  real cl_min;
+  real cl_max;
+
+  // Rescale x1 in unit hypercube
+  for (i in 1:M) {
+    scale_x[i] = 1. / (max(x1[,i])-min(x1[,i]))  ;
+    x[,i] = (x1[,i] -min(x1[,i])) * scale_x[i];
+  }
   
+  dys  = dy1;
+  udys = udy1;
+  if(use_gradients == 1)
+    for (k in 1:M)
+      for (i in 1:N1) {
+        dys[i,k]  = dy1[i,k]/scale_x[k];    
+        udys[i,k] = udy1[i,k]/scale_x[k];    
+      } 
+  
+  // Range for correlation length (Dalbey2013)
+  avd = pow(1./N1,1./M); // Average distance between 2 points in unit cube  
+  cl_min = avd/4;
+  cl_max = avd*8;
+
   // Trend
   for (i in 1:N1)               
     mu[i] = mean(y1);
@@ -35,17 +63,17 @@ transformed data {
   if (use_gradients == 1)  
     for (k in 1:M)
       for (i in 1:N1)   
-        mu[k*N1+i] = mean(dy1[,k]);
+        mu[k*N1+i] = mean(dys[,k]);
 
 }
 parameters {
   real<lower=0> eta_sq;
-  vector<lower=0>[M] inv_rho_sq;
+  vector<lower=cl_min, upper=cl_max>[M] corlen;
 }
 transformed parameters {
   vector[M] rho2;
   real eta2; 
-  rho2 = inv(inv_rho_sq);
+  rho2 = 0.5 * inv(corlen .* corlen);
   eta2 = eta_sq; 
 }
 model {
@@ -54,20 +82,21 @@ model {
   matrix[N1*(1+use_gradients*M),
          N1*(1+use_gradients*M)] V;
   vector[N1*(1+use_gradients*M)] y;
-
+  // vector[N1*(1+use_gradients*M)] eig;
+  
   for (i in 1:N1) 
     y[i] = y1[i];
 
   if(use_gradients == 1)
     for (k in 1:M)
       for (i in 1:N1) 
-         y[k*N1+i] = dy1[i,k]; 
+         y[k*N1+i] = dys[i,k];
 
   // Build cov matrix 
   # <y,y>
   for (i in   1:N1) 
     for (j in i:N1) {
-      d = x1[i,]-x1[j,];
+      d = x[i,]-x[j,];
       rd2 = sum(rho2 .* (d .* d)'); 
       V[i,j] = eta2 * exp(-rd2); 
       V[j,i] = V[i,j];
@@ -82,27 +111,34 @@ model {
     # <y,dy>
     for (i in   1:N1) 
       for (j in 1:N1) {
-        d = x1[i,]-x1[j,];
+        d = x[i,]-x[j,];
         rd2 = sum(rho2 .* (d .* d)'); 
-        vexp = exp(-rd2);
+        vexp = eta2 * exp(-rd2);
         for (k in 1:M) {
-          V[i,k*N1+j] = eta2 * 2*rho2[k]*d[k] * vexp; 
-          V[k*N1+j,i] = V[i,k*N1+j]; 
+          cc = 2 * rho2[k]*d[k] * vexp ;
+          V[i,k*N1+j] = cc; 
+          V[k*N1+j,i] = cc; 
         }
       }
 
     # <dy,dy>
     for (i in   1:N1) 
-      for (j in 1:N1) {
-        d = x1[i,]-x1[j,];
+      for (j in i:N1) {
+        d = x[i,]-x[j,];
         rd2 = sum(rho2 .* (d .* d)'); 
-        vexp = exp(-rd2);
-        for (k1 in    1:M) {
-          for (k2 in k1:M) {
-            cc = k1==k2 ? 2*rho2[k1]*(1-2*rho2[k1]* d[k1]^2) 
-                        : -4*rho2[k1]*d[k1]*rho2[k2]*d[k2] ;
-            V[k1*N1+i,k2*N1+j] = eta2 * cc * vexp; 
-            V[k2*N1+j,k1*N1+i] = V[k1*N1+i,k2*N1+j]; 
+        vexp = eta2 * exp(-rd2);
+        for (k1 in 1:M) {
+          cc = 2 * rho2[k1] * (1-2*rho2[k1]* d[k1]^2) * vexp ;
+          V[k1*N1+i,k1*N1+j] = cc; 
+          V[k1*N1+j,k1*N1+i] = cc; 
+        }
+        for (k1 in    1:(M-1) ) {
+          for (k2 in  (k1+1):M) {
+            cc = -4 * rho2[k1]*d[k1] * rho2[k2]*d[k2] * vexp;
+            V[k1*N1+i,k2*N1+j] = cc; 
+            V[k2*N1+j,k1*N1+i] = cc; 
+            V[k1*N1+j,k2*N1+i] = cc; 
+            V[k2*N1+i,k1*N1+j] = cc; 
           }
         }
       }
@@ -110,13 +146,18 @@ model {
     // Augment diagonal with data variances
     for (k in 1:M)
       for (i in 1:N1) 
-        V[k*N1+i,k*N1+i] = V[k*N1+i,k*N1+i] + udy1[i,k]^2; // Grad var.
+        V[k*N1+i,k*N1+i] = V[k*N1+i,k*N1+i] 
+                         + udys[i,k]^2; // Grad var.
   }  
-
-  eta_sq     ~ cauchy(0,5);
-  inv_rho_sq ~ cauchy(0,5);
+  
+  // Check condition number of V
+  // eig = eigenvalues_sym(V);
+  // print( eig[N1*(1+use_gradients*M)]/eig[1] );
+  
+  eta_sq ~ cauchy(0,5);
 
   y ~ multi_normal(mu, V);
 }
   
+
 

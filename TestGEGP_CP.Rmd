@@ -92,7 +92,36 @@ plot_resid <- function(data, fit, probs=c(0.025,0.5,0.975),
              data$x1+del,res1+del*dg,lwd=2,col=3)
   }
 }
-
+checkPredict <- function(input,model,probs=c(0.025,0.5,0.975)) {
+  
+  # Check predicted values at calibration points
+  input_check = input
+  input_check$N2 = input$N1
+  input_check$x2 = input$x1
+  input_check$y2 = input$y1
+  fitCheck = sampling(model, data = input_check,
+                 iter = 2000, chains = 1, warmup = 1000)
+  y_p = extract(fitCheck,"y2")[[1]]
+  
+  q_p = matrix(NA,ncol=length(probs),nrow=input_check$N2)
+  for (i in 1:input_check$N2) {
+    q_p[i,] = quantile(y_p[,i],probs=probs)
+  }
+  y_m  = apply(y_p,2,mean)
+  
+  x1  = input$x1
+  y1  = input$y1
+  uy1 = input$uy1
+  par(mfrow=c(1,ncol(x1)))
+  for(idim in 1:ncol(x1)) {
+    plot(x1[,idim],y1,ylim=range(q_p),main=paste('Dimension:',idim))
+    grid();box()
+    segments(x1[,idim],y1-2*uy1,x1[,idim],y1+2*uy1,lwd=8,col=3)
+    segments(x1[,idim],q_p[,1],x1[,idim],q_p[,3],lwd=4,col='orange')
+    legend('topright',legend=c('Data','Pred.'),col=c(3,'orange'),lwd=c(8,4))
+  }
+  
+}
 ```
 
 # Synthetic data
@@ -105,12 +134,12 @@ fmod = expression(sin(x+0.5))
 # fmod = expression((x-2)^2)
 
 # Generate data
-N1 = 6
+N1 = 10
 sd = 0.02
 x_min = 1; x_max = 10
 x1 = as.matrix(seq(from = x_min, to = x_max, length.out = N1),ncol=1)
 y1 = as.vector(eval(fmod,list(x=x1))  + sd*rnorm(N1))
-uy1= rep(sd,length(x1))
+uy1= as.vector(sd*sqrt(x1)) #rep(sd,length(x1))
 dy1 = as.matrix(as.vector(attr(eval(deriv(fmod,"x"),list(x=x1)),"gradient")) +
   sd*rnorm(N1),ncol=1)
 udy1= as.matrix(rep(sd,length(x1)),ncol=1)
@@ -144,17 +173,17 @@ modCal = stan_model(file = 'GEGPNDCal.stan')
 fit = sampling(modCal, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
 
-pars = c("eta_sq", "inv_rho_sq")
+pars = c("eta_sq", "corlen")
 ab_summary <- summary(fit, pars = pars, 
                       probs = c(0.025, 0.975))$summary
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
-traceplot(fit,pars=pars,inc_warmup=TRUE)
-pairs(fit,pars=pars)
+rstan::traceplot(fit,pars=pars,inc_warmup=TRUE)
+pairs(fit,pars=pars,gap=0)
 
 modPred = stan_model(file = 'GEGPNDPred.stan')
-input_data$eta_sq     = mean(extract(fit)$eta_sq)
-input_data$inv_rho_sq = as.array(colMeans(extract(fit)$inv_rho_sq),dim=c(1,0))
+input_data$eta_sq  = mean(extract(fit)$eta_sq)
+input_data$corlen = as.array(colMeans(extract(fit)$corlen),dim=c(1,0))
 
 fitp = sampling(modPred, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
@@ -192,6 +221,9 @@ plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
      main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
 abline(a=0,b=1,col=2);grid();box()
 
+# Check values at calibration points
+checkPredict(input=input_data, model=modPred)
+
 ```
 
 __Note__: DiceKriging fails on this example...
@@ -205,20 +237,20 @@ input_data$use_gradients = 1
 fitGE = sampling(modCal, data = input_data,
                  iter = 2000, chains = 1, warmup = 1000)
 
-pars = c("eta_sq", "inv_rho_sq")
+pars = c("eta_sq", "corlen")
 ab_summary <- summary(fitGE, pars = pars, 
                       probs = c(0.025, 0.975))$summary
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
-traceplot(fitGE,pars=pars,inc_warmup=TRUE)
+rstan::traceplot(fitGE,pars=pars,inc_warmup=TRUE)
 pairs(fitGE,pars=pars)
 
 # input_data$eta_sq     = mean(extract(fitGE)$eta_sq)
 # input_data$inv_rho_sq = as.array(colMeans(extract(fitGE)$inv_rho_sq),dim=c(1,0))
 
 map =which.max(extract(fitGE)$lp__)
-input_data$eta_sq     = extract(fitGE)$eta_sq[map]
-input_data$inv_rho_sq = as.array(extract(fitGE)$inv_rho_sq[map],dim=c(1,0))
+input_data$eta_sq = extract(fitGE)$eta_sq[map]
+input_data$corlen = as.array(extract(fitGE)$corlen[map],dim=c(1,0))
 
 fitGEp = sampling(modPred, data = input_data,
                iter = 2000, chains = 1, warmup = 1000)
@@ -243,9 +275,13 @@ plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
      main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
 abline(a=0,b=1,col=2);grid();box()
 
+# Check values at calibration points
+checkPredict(input=input_data, model=modPred)
+
+
 ```
 
-# Impact of grandients uncertainty
+# Impact of gradients uncertainty
 
 ```{r GEGPUnc}
 input_data1 <- read_rdump("mydata.R")
@@ -264,17 +300,17 @@ input_data1$udy1= as.matrix(rep(sd_big,length(x1)),ncol=1)
 fitGEUnc = sampling(modCal, data = input_data1,
                     iter = 2000, chains = 1, warmup = 1000)
 
-pars = c("eta_sq", "inv_rho_sq")
+pars = c("eta_sq", "corlen")
 ab_summary <- summary(fitGEUnc, pars = pars, 
                       probs = c(0.025, 0.975))$summary
 knitr::kable(ab_summary[,c('mean','sd','2.5%','97.5%','n_eff','Rhat')],digits=3)
 
-traceplot(fitGEUnc,pars=pars,inc_warmup=TRUE)
+rstan::traceplot(fitGEUnc,pars=pars,inc_warmup=TRUE)
 pairs(fitGEUnc,pars=pars)
 
 map =which.max(extract(fitGEUnc)$lp__)
-input_data1$eta_sq     = extract(fitGEUnc)$eta_sq[map]
-input_data1$inv_rho_sq = as.array(extract(fitGEUnc)$inv_rho_sq[map],dim=c(1,0))
+input_data1$eta_sq = extract(fitGEUnc)$eta_sq[map]
+input_data1$corlen = as.array(extract(fitGEUnc)$corlen[map],dim=c(1,0))
 
 fitGEUncp = sampling(modPred, data = input_data1,
                iter = 2000, chains = 1, warmup = 1000)
@@ -300,59 +336,12 @@ plot(y_pred_m1,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
      main=paste0('Dice: Ref = ',length(input_data$x1),' points'))
 abline(a=0,b=1,col=2);grid();box()
 
+# Check values at calibration points
+checkPredict(input=input_data1, model=modPred)
+
 ```
 
 # Comparison
-
-<!--
-```{r compare1,fig.height=8}
-
-probs=c(0.025,0.5,0.975)
-xlim=range(y2_ref)
-
-par(mfrow=c(2,2))
-
-par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
-    pty='s',tcl=-0.5, cex=1)
-y_p = extract(fitp,"y2")[[1]]
-q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
-for (i in 1:input_data$N2) {
-  q_pred[i,] = quantile(y_p[,i],probs=probs)
-}
-y_pred = apply(y_p,2,mean)
-plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('GP: Ref = ',length(input_data$x1),' points'))
-segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
-abline(a=0,b=1,col=2);grid();box()
-
-par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
-    pty='s',tcl=-0.5, cex=1)
-y_p = extract(fitGEp,"y2")[[1]]
-q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
-for (i in 1:input_data$N2) {
-  q_pred[i,] = quantile(y_p[,i],probs=probs)
-}
-y_pred = apply(y_p,2,mean)
-plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('GEGP: Ref = ',length(input_data$x1),' points'))
-segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
-abline(a=0,b=1,col=2);grid();box()
-
-par(mar=c(3,3,1.6,.2),mgp=c(2,.75,0), 
-    pty='s',tcl=-0.5, cex=1)
-y_p = extract(fitGEUncp,"y2")[[1]]
-q_pred = matrix(NA,ncol=length(probs),nrow=input_data$N2)
-for (i in 1:input_data$N2) {
-  q_pred[i,] = quantile(y_p[,i],probs=probs)
-}
-y_pred = apply(y_p,2,mean)
-plot(y_pred,y2_ref,pch=19,col=blue_tr, xlim=xlim, ylim=xlim,
-     main=paste0('GEGP sd_big: Ref = ',length(input_data$x1),' points'))
-segments(q_pred[,1],y2_ref,q_pred[,3],y2_ref,col=blue_tr,lwd=2)
-abline(a=0,b=1,col=2);grid();box()
-
-```
--->
 
 ```{r compare,fig.height=8}
 ylim=c(-1.5,1.5)
